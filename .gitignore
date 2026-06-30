@@ -1,0 +1,51 @@
+# ====================================================================
+# 1. Weights, Checkpoints, and Model Files
+# ====================================================================
+*.pth
+*.pt
+*.pkl
+*.h5
+*.ckpt
+*.onnx
+*.pb
+checkpoint/
+weights/
+
+
+# ====================================================================
+# 2. Datasets and Large Data Files
+# ====================================================================
+# Ignore dataset directories (change names to match your folders)
+data/
+datasets/
+
+# Ignore archive and large binary formats
+*.zip
+*.tar.gz
+*.tar
+*.gz
+*.7z
+*.rar
+*.csv
+*.npy
+*.npz
+
+
+# ====================================================================
+# 3. Outputs, Logs, and TensorBoard Results
+# ====================================================================
+results/
+output/
+outputs/
+runs/
+*.log
+tensorboard/
+
+
+# ====================================================================
+# 4. System and IDE Cache Files (To prevent conflicts)
+# ====================================================================
+.vscode/
+__pycache__/
+.ipynb_checkpoints/
+.DS_Store
