@@ -20,11 +20,25 @@ class TimmCNNEncoder(torch.nn.Module):
             "num_classes": 0,
         },
         pool: bool = True,
+        checkpoint_path: str | None = None,
     ):
         super().__init__()
-        assert kwargs.get("pretrained", False), "only pretrained models are supported"
+        if checkpoint_path is not None:
+            kwargs = {**kwargs, "pretrained": False}
         self.model = timm.create_model(model_name, **kwargs)
         self.model_name = model_name
+        if checkpoint_path is not None:
+            checkpoint = torch.load(checkpoint_path, map_location="cpu")
+            state_dict = checkpoint
+            for key in ["state_dict", "model", "model_state_dict"]:
+                if isinstance(checkpoint, dict) and key in checkpoint:
+                    state_dict = checkpoint[key]
+                    break
+            state_dict = {
+                key.removeprefix("module.").removeprefix("model."): value
+                for key, value in state_dict.items()
+            }
+            self.model.load_state_dict(state_dict, strict=False)
         if pool:
             self.pool = torch.nn.AdaptiveAvgPool2d(1)
         else:

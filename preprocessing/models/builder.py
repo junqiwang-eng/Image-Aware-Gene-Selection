@@ -14,6 +14,7 @@ from .timm_wrapper import TimmCNNEncoder
 import torch
 from utils.constants import MODEL2CONSTANTS
 from utils.transform_utils import get_eval_transforms
+from torchvision import transforms
 
 
 def has_CONCH():
@@ -49,27 +50,42 @@ def has_UNI():
     return HAS_UNI, UNI_CKPT_PATH
 
 
+def get_env_path(env_name):
+    path = os.environ.get(env_name)
+    if path:
+        print(f"loading local checkpoint from ${env_name}: {path}")
+    return path
+
+
+def get_state_dict(checkpoint):
+    for key in ["state_dict", "model", "model_state_dict"]:
+        if isinstance(checkpoint, dict) and key in checkpoint:
+            return checkpoint[key]
+    return checkpoint
+
+
+class MidnightEncoder(torch.nn.Module):
+    def __init__(self, model_name="kaiko-ai/midnight"):
+        super().__init__()
+        from transformers import AutoModel
+
+        self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
+
+    def forward(self, x):
+        output = self.model(pixel_values=x, interpolate_pos_encoding=True)
+        cls_token = output.last_hidden_state[:, 0]
+        patch_tokens = output.last_hidden_state[:, 1:].mean(dim=1)
+        return torch.cat([cls_token, patch_tokens], dim=-1)
+
+
 def get_encoder(model_name, target_img_size=224):
     img_transforms = None
     print("loading model checkpoint")
     if model_name == "resnet50_trunc":
-        model = TimmCNNEncoder()
-    elif model_name == "resnet50":
-        from torchvision import transforms, models
-        import torch.nn as nn
-
-        model = models.resnet50(weights=models.ResNet50_Weights.IMAGENET1K_V2)
-        model = nn.Sequential(*list(model.children())[:-2])
-        img_transforms = transforms.Compose(
-            [
-                transforms.Resize((224, 224)),
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=(0.707223, 0.578729, 0.703617),
-                    std=(0.211883, 0.230117, 0.177517),
-                ),
-            ]
-        )
+        checkpoint_path = get_env_path("RESNET50_TRUNC_CKPT_PATH")
+        if checkpoint_path is None:
+            print("RESNET50_TRUNC_CKPT_PATH not set; loading timm pretrained weights")
+        model = TimmCNNEncoder(checkpoint_path=checkpoint_path)
     elif model_name == "uni_v1":
         HAS_UNI, UNI_CKPT_PATH = has_UNI()
         assert HAS_UNI, "UNI is not available"
@@ -79,9 +95,8 @@ def get_encoder(model_name, target_img_size=224):
             num_classes=0,
             dynamic_img_size=True,
         )
-        model.load_state_dict(
-            torch.load(UNI_CKPT_PATH, map_location="cpu"), strict=True
-        )
+        checkpoint = torch.load(UNI_CKPT_PATH, map_location="cpu")
+        model.load_state_dict(get_state_dict(checkpoint), strict=True)
     elif model_name == "conch_v1":
         HAS_CONCH, CONCH_CKPT_PATH = has_CONCH()
         # assert HAS_CONCH, "CONCH is not available"
@@ -90,11 +105,29 @@ def get_encoder(model_name, target_img_size=224):
         if HAS_CONCH:
             model, _ = create_model_from_pretrained("conch_ViT-B-16", CONCH_CKPT_PATH)
         else:
+            print("CONCH_CKPT_PATH not set; loading CONCH from HuggingFace")
             model, preprocess = create_model_from_pretrained(
                 "conch_ViT-B-16", "hf_hub:MahmoodLab/conch"
             )
         model.forward = partial(
             model.encode_image, proj_contrast=False, normalize=False
+        )
+    elif model_name == "midnight":
+        midnight_model_name = get_env_path("MIDNIGHT_CKPT_PATH")
+        if midnight_model_name is None:
+            midnight_model_name = os.environ.get("MIDNIGHT_MODEL_NAME", "kaiko-ai/midnight")
+            print(f"MIDNIGHT_CKPT_PATH not set; loading Midnight from {midnight_model_name}")
+        model = MidnightEncoder(midnight_model_name)
+        constants = MODEL2CONSTANTS[model_name]
+        img_transforms = transforms.Compose(
+            [
+                transforms.Resize((224, 224)),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=constants["mean"],
+                    std=constants["std"],
+                ),
+            ]
         )
     elif model_name == "hopt":
         model = timm.create_model(

@@ -15,7 +15,7 @@ def load_patches(file_name):
     return patch_list, barcode, coords
 
 
-def preprocessing_adata(file_name, visualize=True):
+def preprocessing_adata(file_name):
 
     adata = sc.read_h5ad(file_name)
 
@@ -34,50 +34,36 @@ def preprocessing_adata(file_name, visualize=True):
                 adata, qc_vars=["mt", "ribo", "hb"], inplace=True, log1p=True
             )
 
-    #
-    # adata = adata[adata.obs.n_genes_by_counts < 1000, :]
-    adata = adata[adata.obs.pct_counts_mt < 20, :].copy()
 
-    if visualize:
-        sc.pl.violin(
-            adata,
-            ["n_genes_by_counts", "total_counts", "pct_counts_mt"],
-            jitter=0.4,
-            multi_panel=True,
-        )
+    adata = adata[adata.obs.pct_counts_mt < 15, :].copy()
 
-    #
-    sc.pp.filter_cells(adata, min_genes=200)
-    sc.pp.filter_genes(adata, min_cells=5)
+
+    sc.pp.filter_cells(adata, min_genes=100)
+    min_cells = max(1, int(np.ceil(adata.n_obs * 0.01)))
+    sc.pp.filter_genes(adata, min_cells=min_cells)
  
 
     # Regularized count data
 
-    nonzero_cells = (adata.X.sum(axis=1) != 0).A1 if hasattr(adata.X, "A1") else (adata.X.sum(axis=1) !=0)  ##xiugai
-    adata = adata[nonzero_cells].copy()   ##
+    cell_sums = adata.X.sum(axis=1)
+    if hasattr(cell_sums, "A1"):
+        cell_sums = cell_sums.A1
+    else:
+        cell_sums = np.asarray(cell_sums).ravel()
+    nonzero_cells = cell_sums != 0
+    adata = adata[nonzero_cells].copy()   
     
 
     adata.layers["counts"] = adata.X.copy()
 
-    # 诊断代码：检查是否存在零表达或NaN值
-    sums = adata.X.sum(axis=1)
-    if hasattr(sums, 'A1'):
-        sums = sums.A1
+    sc.pp.normalize_total(adata, target_sum=1e4, inplace=True)
+    sc.pp.log1p(adata)
 
-    # 使用 numpy 错误处理来抑制 divide by zero 警告
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=RuntimeWarning)
-        with np.errstate(divide='ignore', invalid='ignore'):
-            sc.pp.normalize_total(adata, target_sum=1e4, inplace=True)
-            sc.pp.log1p(adata)
-
-    # highly variable
-    # sc.pp.highly_variable_genes(adata, n_top_genes=50)
 
     return adata
 
 
-def matching_adata_patch(adata, patch_list, barcode, visualize=False):
+def matching_adata_patch(adata, patch_list, barcode):
     code_list = []
     for bar in barcode:
         code_list.append(bar[0].decode("utf-8"))
@@ -92,14 +78,6 @@ def matching_adata_patch(adata, patch_list, barcode, visualize=False):
 
     adata_wpatch = adata[adata.obs["patch_index"].notnull()]
 
-    if visualize:
-        plt.rcParams["figure.figsize"] = (8, 8)
-        sc.pl.spatial(
-            adata_wpatch,
-            img_key="downscaled_fullres",
-            color=["total_counts", "n_genes_by_counts"],
-            size=1,
-        )
 
     spot_adata = adata_wpatch
     exp = spot_adata.X
@@ -125,11 +103,9 @@ adata_dir = data_directory + "/st"
 
 for patch_path in patch_paths:
     patch_list, barcode, coords = load_patches(patch_path)
-    adata = preprocessing_adata(
-        adata_dir + "/" + patch_path.stem + ".h5ad", visualize=False
-    )
+    adata = preprocessing_adata(adata_dir + "/" + patch_path.stem + ".h5ad")
     exp, count, patch, img_coords, gene_list, barcode = matching_adata_patch(
-        adata, patch_list, barcode, visualize=False
+        adata, patch_list, barcode
     )
     adata = sc.read_h5ad(adata_dir + "/" + patch_path.stem + ".h5ad")
 
@@ -149,4 +125,4 @@ for patch_path in patch_paths:
             f,
         )
 
-# python preprocessing/make_paired.py dataset/hest1k/task3
+# python preprocessing/make_paired.py dataset/BC1

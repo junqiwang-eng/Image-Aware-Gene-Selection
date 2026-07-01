@@ -21,10 +21,11 @@ import dotenv
 dotenv.load_dotenv()
 
 sys.path.append("../preprocessing/utils")
-from utils.file_utils import save_hdf5
 from models import get_encoder
 
 device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
+
+MODEL_NAMES = ["resnet50_trunc", "uni_v1", "conch_v1", "midnight"]
 
 
 def compute_w_loader(output_path, loader, model, gene_list, verbose=0):
@@ -37,14 +38,10 @@ def compute_w_loader(output_path, loader, model, gene_list, verbose=0):
     if verbose > 0:
         print(f"processing a total of {len(loader)} batches".format(len(loader)))
 
-    mode = "w"
-    asset_dict = {"gene_list": np.array(gene_list)}
-    attr_dict = {"gene_list": {"dtype": h5py.string_dtype()}}
-    with h5py.File(output_path, mode) as f:
+    with h5py.File(output_path, "w") as f:
         f.create_dataset(
             "gene_list", data=np.array(gene_list, dtype=h5py.string_dtype())
         )
-        init_daata = loader.dataset[0]
         dtype_dict = {
             "img": np.float32,
             "coords": np.int32,
@@ -56,7 +53,6 @@ def compute_w_loader(output_path, loader, model, gene_list, verbose=0):
         for count, data in enumerate(tqdm(loader)):
             with torch.inference_mode():
                 batch = data["img"]
-                coords = data["coords"].numpy().astype(np.int32)
                 batch = batch.to(device, non_blocking=True)
                 features = model(batch)
                 features = features.cpu().numpy().astype(np.float32)
@@ -133,8 +129,8 @@ def parse_args():
     parser.add_argument(
         "--model_name",
         type=str,
-        default="resnet50",
-        choices=["resnet50", "resnet50_trunc", "uni_v1", "conch_v1", "hopt", "dinov2"],
+        default="resnet50_trunc",
+        choices=MODEL_NAMES,
     )
     parser.add_argument("--batch_size", type=int, default=256)
     parser.add_argument("--no_auto_skip", default=False, action="store_true")
