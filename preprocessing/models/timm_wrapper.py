@@ -9,6 +9,14 @@ import torch
 import timm
 
 
+def load_checkpoint_file(checkpoint_path):
+    if checkpoint_path.endswith(".safetensors"):
+        from safetensors.torch import load_file
+
+        return load_file(checkpoint_path)
+    return torch.load(checkpoint_path, map_location="cpu")
+
+
 class TimmCNNEncoder(torch.nn.Module):
     def __init__(
         self,
@@ -28,7 +36,7 @@ class TimmCNNEncoder(torch.nn.Module):
         self.model = timm.create_model(model_name, **kwargs)
         self.model_name = model_name
         if checkpoint_path is not None:
-            checkpoint = torch.load(checkpoint_path, map_location="cpu")
+            checkpoint = load_checkpoint_file(checkpoint_path)
             state_dict = checkpoint
             for key in ["state_dict", "model", "model_state_dict"]:
                 if isinstance(checkpoint, dict) and key in checkpoint:

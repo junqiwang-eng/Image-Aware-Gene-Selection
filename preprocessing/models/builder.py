@@ -67,9 +67,21 @@ def get_state_dict(checkpoint):
 class MidnightEncoder(torch.nn.Module):
     def __init__(self, model_name="kaiko-ai/midnight"):
         super().__init__()
-        from transformers import AutoModel
+        from transformers import AutoConfig, AutoModel
 
-        self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
+        if os.path.isfile(model_name):
+            config_source = os.environ.get("MIDNIGHT_CONFIG_PATH", "kaiko-ai/midnight")
+            config = AutoConfig.from_pretrained(config_source, trust_remote_code=True)
+            self.model = AutoModel.from_config(config, trust_remote_code=True)
+            if model_name.endswith(".safetensors"):
+                from safetensors.torch import load_file
+
+                state_dict = load_file(model_name)
+            else:
+                state_dict = torch.load(model_name, map_location="cpu")
+            self.model.load_state_dict(get_state_dict(state_dict), strict=True)
+        else:
+            self.model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
 
     def forward(self, x):
         output = self.model(pixel_values=x, interpolate_pos_encoding=True)
