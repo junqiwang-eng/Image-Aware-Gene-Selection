@@ -125,4 +125,4 @@ for patch_path in patch_paths:
             f,
         )
 
-# python preprocessing/make_paired.py dataset/BC1
+# python preprocessing/make_paired.py datasets/BC1

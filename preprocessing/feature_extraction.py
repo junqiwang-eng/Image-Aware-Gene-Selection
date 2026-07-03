@@ -55,7 +55,7 @@ def compute_w_loader(output_path, loader, model, gene_list, verbose=0):
                 batch = data["img"]
                 batch = batch.to(device, non_blocking=True)
                 features = model(batch)
-                features = features.cpu().numpy().astype(np.float32)
+                features = features.float().cpu().numpy().astype(np.float32)
                 if count == 0:
                     f.create_dataset(
                         "features",
@@ -207,6 +207,29 @@ if __name__ == "__main__":
             print("features size: ", features.shape)
             print("coordinates size: ", file["coords"].shape)
 
-        # features = torch.from_numpy(features)
-        # bag_base, _ = os.path.splitext(bag_name)
-        # torch.save(features, os.path.join(args.feat_dir, "pt_files", bag_base + ".pt"))
+'''
+Example usage:
+python preprocessing/feature_extraction.py \
+     --model_name resnet50_trunc \
+     --input_dir datasets/BC1/paired_data \
+     --save_dir datasets/BC1/features/resnet50 \
+     --batch_size 1024
+
+python preprocessing/feature_extraction.py \
+    --model_name uni_v1 \
+    --input_dir datasets/BC1/paired_data \
+    --save_dir datasets/BC1/features/uni_v1 \
+    --batch_size 1024
+
+python preprocessing/feature_extraction.py \
+    --model_name conch_v1 \
+    --input_dir datasets/BC1/paired_data \
+    --save_dir datasets/BC1/features/conch_v1 \
+    --batch_size 1024
+
+python preprocessing/feature_extraction.py \
+    --model_name midnight \
+    --input_dir datasets/BC1/paired_data \
+    --save_dir datasets/BC1/features/midnight \
+    --batch_size 256
+'''

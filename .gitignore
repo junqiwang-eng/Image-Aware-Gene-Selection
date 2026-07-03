@@ -18,6 +18,7 @@ weights/
 # Ignore dataset directories (change names to match your folders)
 data/
 datasets/
+dataset/
 
 # Ignore archive and large binary formats
 *.zip

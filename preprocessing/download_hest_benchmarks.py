@@ -30,5 +30,7 @@ def download_hest_data(ids_to_query, local_dir):
     )
 
 
-local_dir = f"./dataset/{task_id}"
+local_dir = f"./datasets/{task_id}"
 download_hest_data(tasks_id_dict[task_id], local_dir)
+
+# python preprocessing/download_hest_benchmarks.py BC1
