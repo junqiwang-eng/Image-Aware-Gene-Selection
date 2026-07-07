@@ -5,7 +5,8 @@ import numpy as np
 import torch
 from torch.utils.data import Dataset
 
-DEFAULT_RANK_LIST_DIR = Path(r"D:/Work/Gene select/datasets/rank_list")
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_RANK_LIST_DIR = PROJECT_ROOT / "datasets" / "rank_list"
 
 
 def _decode_h5_string(value):
@@ -60,12 +61,16 @@ def resolve_rank_list_path(json_path, rank_list_dir=DEFAULT_RANK_LIST_DIR):
     if path.suffix == ".json":
         candidates.append(rank_list_dir / path.name)
     else:
+        name_parts = path.name.rsplit("_", 1)
         candidates.extend(
             [
                 rank_list_dir / f"{path.name}_fscore.json",
                 rank_list_dir / f"{path.name}.json",
             ]
         )
+        if len(name_parts) == 2:
+            feature_name, resolution = name_parts
+            candidates.append(rank_list_dir / f"{feature_name}_fscore_{resolution}.json")
 
     for candidate in candidates:
         if candidate.exists():

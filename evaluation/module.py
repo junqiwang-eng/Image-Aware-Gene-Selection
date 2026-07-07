@@ -73,7 +73,7 @@ class LinearModel(nn.Module):
 _model_dict = {"linear": LinearModel, "ff": FFlayer}
 
 
-# 3. Lightning Module 主体：完全移除 val_step 干净清爽
+# 3. Lightning Module 主体
 class STPred(pl.LightningModule):
 
     def __init__(self, model_key, model_params={}, lr=5e-5):
@@ -101,6 +101,17 @@ class STPred(pl.LightningModule):
 
         # 记录日志
         self.log("train_loss", pcc_loss, on_epoch=True, prog_bar=True)
+        return pcc_loss
+
+    def validation_step(self, batch, batch_idx):
+        out = self(batch)
+        y_pred = out["gene_pred"]
+        y_true = batch["exp"]
+
+        pcc_loss = self.pcc_fn(y_pred, y_true)
+
+        self.log("val_loss", pcc_loss, on_epoch=True, prog_bar=True)
+        self.log("val_pcc", 1 - pcc_loss, on_epoch=True, prog_bar=True)
         return pcc_loss
 
     def test_step(self, batch, batch_idx):
