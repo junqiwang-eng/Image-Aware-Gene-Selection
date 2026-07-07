@@ -30,6 +30,7 @@ dataset/
 *.csv
 *.npy
 *.npz
+*.xlsx
 
 
 # ====================================================================
@@ -51,3 +52,5 @@ __pycache__/
 .ipynb_checkpoints/
 .DS_Store
 .env
+.agents/
+wandb/
