@@ -4,11 +4,10 @@
 This script reads clustered h5ad files, intersects genes across all files,
 and applies the same patient-wise f-score selection workflow used in DEG.ipynb.
 
-For each feature-specific cluster column (for example, ``conch_features_cluster``),
+For each feature-specific cluster column (for example, ``conch_0p3_cluster``),
 it computes per-patient F-scores, keeps the top genes per patient, aggregates
 them by frequency and average rank, and writes a gene list JSON file named
-``<feature_source>_fscore_<resolution>.json`` under the output directory when
-a resolution tag is available from the input folder name.
+``<feature_source>_fscore_<resolution>.json`` under the output directory.
 """
 
 from __future__ import annotations
@@ -49,6 +48,14 @@ def make_output_name(feature_source: str, selection_method: str, resolution_labe
 	if resolution_label:
 		name_parts.append(clean_name(resolution_label))
 	return "_".join(name_parts) + ".json"
+
+
+def split_cluster_column(cluster_key: str) -> tuple[str, str | None]:
+	base_name = clean_name(cluster_key.removesuffix("_cluster"))
+	match = re.match(r"^(?P<feature>.+)_(?P<resolution>\d+p\d+)$", base_name)
+	if match:
+		return match.group("feature"), match.group("resolution")
+	return base_name, None
 
 
 def collect_h5ad_files(input_dir: Path) -> list[Path]:
@@ -200,13 +207,17 @@ def process_files(
 	output_paths: list[Path] = []
 
 	for cluster_key in cluster_columns:
-		feature_source = clean_name(cluster_key.removesuffix("_cluster"))
-		print(f"\n===== Running f-score for {feature_source} =====")
+		feature_source, column_resolution_label = split_cluster_column(cluster_key)
+		output_resolution_label = column_resolution_label or resolution_label
+		label_parts = [feature_source]
+		if output_resolution_label:
+			label_parts.append(output_resolution_label)
+		print(f"\n===== Running f-score for {' '.join(label_parts)} =====")
 		top_genes = compute_fscore_gene_list(combined, cluster_key, patient_key)
 		output_path = output_dir / make_output_name(
 			feature_source,
 			selection_method,
-			resolution_label,
+			output_resolution_label,
 		)
 		with open(output_path, "w", encoding="utf-8") as handle:
 			json.dump(top_genes, handle, ensure_ascii=False, indent=4)
@@ -242,7 +253,7 @@ def parse_args() -> argparse.Namespace:
 		"--resolution-label",
 		type=str,
 		default=None,
-		help="Resolution label used in output filenames, for example 0p3. If omitted, it is inferred from the input folder name.",
+		help="Fallback resolution label used when cluster columns do not include one, for example 0p3.",
 	)
 	return parser.parse_args()
 
@@ -261,14 +272,15 @@ if __name__ == "__main__":
 	main()
 
 r'''
-PowerShell example:
-python clustering/selection.py `
- 	--input-dir "D:\Work\Gene select\datasets\clustered\BC1_0p3" `
- 	--output-dir "D:\Work\Gene select\datasets\rank_list"
+Linux example:
+python clustering/selection.py \
+	--input-dir datasets/BC1/clustered/BC1_multi \
+	--output-dir datasets/rank_list
 
-Override labels manually:
-python clustering/selection.py `
- 	--input-dir "D:\Work\Gene select\datasets\clustered\BC1_0p3" `
- 	--output-dir "D:\Work\Gene select\datasets\rank_list" `
- 	--selection-method fscore
+Override labels manually for old cluster columns without resolution in their names:
+python clustering/selection.py \
+	--input-dir datasets/BC1/clustered/BC1_0p5 \
+	--output-dir datasets/rank_list \
+	--selection-method fscore \
+	--resolution-label 0p5
 '''

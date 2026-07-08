@@ -187,7 +187,7 @@ python evaluation/run_feature_grid.py \
 
 python evaluation/run_feature_grid.py \
 	--data-dir datasets/BC1/features \
-	--features conch uni \
-	--json-paths conch uni \
-	--parallel 2
+	--features conch uni resnet50 midnight\
+	--json-paths resnet50_0p5 conch_0p5 uni_0p5 midnight_0p5 \
+	--parallel 20
 '''

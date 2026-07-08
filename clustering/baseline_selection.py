@@ -7,8 +7,9 @@ This script builds two rank lists:
   patient-wise rankings by frequency and average rank.
 * HMG: combine all samples and select genes with the highest mean expression.
 
-Both methods first restrict to genes shared by every input file, so the final
-gene lists are valid for all patients.
+The input can be extracted feature .h5 files or AnnData .h5ad files. For
+feature .h5 files, this script reads exp as the expression matrix and gene_list
+as gene names. Patient labels are assigned from the mapping CSV.
 """
 
 from __future__ import annotations
@@ -26,23 +27,42 @@ from scipy.sparse import issparse
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_INPUT_DIR = PROJECT_ROOT / "datasets" / "BC1" / "st"
+DEFAULT_INPUT_DIR = PROJECT_ROOT / "datasets" / "BC1" / "features" / "conch"
 DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "datasets" / "rank_list"
 DEFAULT_MAPPING_CSV = PROJECT_ROOT / "datasets" / "BC1.csv"
 TOP_N_GENES = 250
 HVG_FLAVOR = "seurat"
+FEATURE_H5_REQUIRED_KEYS = ("barcode", "exp", "gene_list")
 
 
-def collect_h5ad_files(input_dir: Path) -> list[Path]:
-	if input_dir.is_file() and input_dir.suffix == ".h5ad":
+def collect_input_files(input_dir: Path) -> list[Path]:
+	if input_dir.is_file() and input_dir.suffix in {".h5", ".h5ad"}:
 		return [input_dir]
 	if not input_dir.is_dir():
 		raise NotADirectoryError(input_dir)
 
-	h5ad_files = sorted(input_dir.rglob("*.h5ad"))
-	if not h5ad_files:
-		raise FileNotFoundError(f"No .h5ad files found under {input_dir}")
-	return h5ad_files
+	input_files = sorted(
+		path for path in input_dir.rglob("*") if path.suffix in {".h5", ".h5ad"}
+	)
+	if not input_files:
+		raise FileNotFoundError(f"No .h5 or .h5ad files found under {input_dir}")
+	return input_files
+
+
+def decode_strings(values: np.ndarray) -> list[str]:
+	arr = np.asarray(values)
+	if arr.ndim > 1 and arr.shape[1] == 1:
+		arr = arr[:, 0]
+
+	decoded = []
+	for value in arr.tolist():
+		if isinstance(value, bytes):
+			decoded.append(value.decode("utf-8"))
+		elif isinstance(value, np.bytes_):
+			decoded.append(value.decode("utf-8"))
+		else:
+			decoded.append(str(value))
+	return decoded
 
 
 def load_patient_mapping(csv_path: Path | None) -> dict[str, str]:
@@ -65,18 +85,59 @@ def load_patient_mapping(csv_path: Path | None) -> dict[str, str]:
 	return patient_by_sample
 
 
-def load_adata_list(
-	h5ad_files: list[Path],
+def add_sample_patient_obs(
+	adata: sc.AnnData,
+	path: Path,
+	patient_by_sample: dict[str, str],
+) -> sc.AnnData:
+	if "sample_id" not in adata.obs.columns:
+		adata.obs["sample_id"] = path.stem
+	if "patient" not in adata.obs.columns and path.stem in patient_by_sample:
+		adata.obs["patient"] = patient_by_sample[path.stem]
+	return adata
+
+
+def load_feature_h5(path: Path, patient_by_sample: dict[str, str]) -> sc.AnnData:
+	try:
+		import h5py
+	except ImportError as exc:
+		raise ImportError("Reading feature .h5 files requires h5py.") from exc
+
+	with h5py.File(path, "r") as file:
+		missing = [key for key in FEATURE_H5_REQUIRED_KEYS if key not in file]
+		if missing:
+			raise KeyError(f"{path} is missing required datasets: {missing}")
+
+		barcodes = decode_strings(file["barcode"][:])
+		expression = np.asarray(file["exp"][:], dtype=np.float32)
+		genes = decode_strings(file["gene_list"][:])
+
+	if expression.shape != (len(barcodes), len(genes)):
+		raise ValueError(
+			f"{path} has exp shape {expression.shape}, expected "
+			f"({len(barcodes)}, {len(genes)}) from barcode and gene_list."
+		)
+
+	obs = pd.DataFrame(index=pd.Index(barcodes, name="barcode"))
+	var = pd.DataFrame(index=pd.Index(genes, name="gene"))
+	adata = sc.AnnData(X=expression, obs=obs, var=var)
+	return add_sample_patient_obs(adata, path, patient_by_sample)
+
+
+def load_input_files(
+	input_files: list[Path],
 	patient_by_sample: dict[str, str],
 ) -> list[sc.AnnData]:
 	adata_list: list[sc.AnnData] = []
-	for path in h5ad_files:
+	for path in input_files:
+		if path.suffix == ".h5":
+			adata = load_feature_h5(path, patient_by_sample)
+			adata_list.append(adata)
+			continue
+
 		adata = sc.read_h5ad(path)
 		adata.obs_names_make_unique()
-		if "sample_id" not in adata.obs.columns:
-			adata.obs["sample_id"] = path.stem
-		if "patient" not in adata.obs.columns and path.stem in patient_by_sample:
-			adata.obs["patient"] = patient_by_sample[path.stem]
+		adata = add_sample_patient_obs(adata, path, patient_by_sample)
 		adata_list.append(adata)
 	return adata_list
 
@@ -236,9 +297,9 @@ def process_files(
 	output_dir: Path,
 	mapping_csv: Path | None = DEFAULT_MAPPING_CSV,
 ) -> list[Path]:
-	h5ad_files = collect_h5ad_files(input_dir)
+	input_files = collect_input_files(input_dir)
 	patient_by_sample = load_patient_mapping(mapping_csv)
-	adata_list = load_adata_list(h5ad_files, patient_by_sample)
+	adata_list = load_input_files(input_files, patient_by_sample)
 	common_genes = intersect_genes(adata_list)
 	print(f"Common genes across all input files: {len(common_genes)}")
 
@@ -262,7 +323,7 @@ def parse_args() -> argparse.Namespace:
 		"--input-dir",
 		type=Path,
 		default=DEFAULT_INPUT_DIR,
-		help="Directory containing h5ad files or a single h5ad file.",
+		help="Directory containing .h5/.h5ad files or a single .h5/.h5ad file.",
 	)
 	parser.add_argument(
 		"--output-dir",
@@ -274,7 +335,7 @@ def parse_args() -> argparse.Namespace:
 		"--mapping-csv",
 		type=Path,
 		default=DEFAULT_MAPPING_CSV,
-		help="CSV with sample_id and patient columns, used when h5ad lacks patient.",
+		help="CSV with sample_id and patient columns.",
 	)
 	return parser.parse_args()
 
@@ -289,7 +350,7 @@ if __name__ == "__main__":
 
 '''
 python clustering/baseline_selection.py \
-	--input-dir datasets/BC1/st \
+	--input-dir datasets/BC1/features/conch \
 	--output-dir datasets/rank_list \
 	--mapping-csv datasets/BC1.csv
 '''

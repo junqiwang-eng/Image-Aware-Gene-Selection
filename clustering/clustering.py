@@ -3,7 +3,7 @@
 
 This script reads h5ad files produced by clustering/combination.py, attaches
 sample/patient labels from a CSV mapping, runs the existing PCA -> neighbors ->
-Leiden workflow once for each feature embedding on a per-patient basis, and
+Leiden workflow for each feature embedding on a per-patient basis, and
 writes a minimal h5ad that keeps expression/count layers, spatial coordinates,
 gene names, sample and patient labels, and the resulting cluster labels.
 
@@ -14,7 +14,7 @@ The CSV mapping is expected to have at least two columns:
 Default cluster parameters match the earlier notebook workflow:
 - PCA n_components = 30
 - neighbors n_neighbors = 15
-- Leiden resolution = 0.5
+- Leiden resolutions = 0.5
 """
 
 from __future__ import annotations
@@ -27,13 +27,17 @@ import scanpy as sc
 from sklearn.decomposition import PCA
 
 
-DEFAULT_PCA_COMPONENTS = 30
+DEFAULT_PCA_COMPONENTS = 50
 DEFAULT_NEIGHBORS = 15
 DEFAULT_RESOLUTION = 0.5
 
 
 def clean_name(name: str) -> str:
 	return name.replace("-", "_").replace(" ", "_")
+
+
+def resolution_label(resolution: float) -> str:
+	return str(resolution).replace(".", "p")
 
 
 def load_patient_mapping(csv_path: Path) -> dict[str, str]:
@@ -133,8 +137,11 @@ def process_files(
 	mapping_csv: Path,
 	output_dir: Path,
 	feature_names: list[str] | None = None,
-	resolution: float = DEFAULT_RESOLUTION,
+	resolutions: list[float] | None = None,
 ) -> list[Path]:
+	if resolutions is None:
+		resolutions = [DEFAULT_RESOLUTION]
+
 	sample_to_patient = load_patient_mapping(mapping_csv)
 	h5ad_files = collect_h5ad_files(input_dir)
 	output_dir.mkdir(parents=True, exist_ok=True)
@@ -173,9 +180,13 @@ def process_files(
 	cluster_columns = []
 	for feature_key in feature_keys:
 		feature_name = clean_name(feature_key.removeprefix("X_"))
-		cluster_key = f"{feature_name}_cluster"
-		cluster_columns.append(cluster_key)
-		combined.obs[cluster_key] = pd.Series(index=combined.obs.index, dtype="object")
+		feature_cluster_columns = [
+			f"{feature_name}_{resolution_label(resolution)}_cluster"
+			for resolution in resolutions
+		]
+		cluster_columns.extend(feature_cluster_columns)
+		for cluster_key in feature_cluster_columns:
+			combined.obs[cluster_key] = pd.Series(index=combined.obs.index, dtype="object")
 
 		for patient_id in combined.obs["patient_id"].unique():
 			patient_mask = combined.obs["patient_id"] == patient_id
@@ -184,10 +195,14 @@ def process_files(
 			if feature_key not in patient_adata.obsm:
 				raise KeyError(f"{feature_key} not found in patient subset for {patient_id}")
 
-			cluster_patient_subset(patient_adata, feature_key, cluster_key, resolution)
-			combined.obs.loc[patient_mask, cluster_key] = patient_adata.obs[cluster_key].astype(str).values
+			for resolution, cluster_key in zip(resolutions, feature_cluster_columns):
+				cluster_patient_subset(patient_adata, feature_key, cluster_key, resolution)
+				combined.obs.loc[patient_mask, cluster_key] = (
+					patient_adata.obs[cluster_key].astype(str).values
+				)
 
-		combined.obs[cluster_key] = combined.obs[cluster_key].astype("category")
+		for cluster_key in feature_cluster_columns:
+			combined.obs[cluster_key] = combined.obs[cluster_key].astype("category")
 
 	output_paths: list[Path] = []
 	for sample_id in ordered_samples:
@@ -252,20 +267,33 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument(
 		"--resolution",
 		type=float,
-		default=DEFAULT_RESOLUTION,
-		help=f"Leiden resolution used for every selected feature. Default: {DEFAULT_RESOLUTION}",
+		default=None,
+		help="Single Leiden resolution. Kept for backward compatibility.",
+	)
+	parser.add_argument(
+		"--resolutions",
+		nargs="+",
+		type=float,
+		default=None,
+		help=f"One or more Leiden resolutions. Default: {DEFAULT_RESOLUTION}",
 	)
 	return parser.parse_args()
 
 
 def main() -> None:
 	args = parse_args()
+	if args.resolution is not None and args.resolutions is not None:
+		raise ValueError("Use either --resolution or --resolutions, not both.")
+	resolutions = args.resolutions
+	if resolutions is None:
+		resolutions = [args.resolution] if args.resolution is not None else None
+
 	process_files(
 		args.input_dir,
 		args.mapping_csv,
 		args.output_dir,
 		args.features,
-		args.resolution,
+		resolutions,
 	)
 
 
@@ -275,23 +303,25 @@ if __name__ == "__main__":
 
 '''
 python clustering/clustering.py \
-     --input-dir D:/Work/Gene select/datasets/combine/BC1 \
-     --mapping-csv D:/Work/Gene select/datasets/BC1.csv \
-     --output-dir D:/Work/Gene select/datasets/clustered/BC1
+     --input-dir datasets/BC1/combined_features \
+     --mapping-csv datasets/BC1.csv \
+     --output-dir datasets/BC1/clustered/BC1
 '''
 
 r'''
-PowerShell example:
-python clustering/clustering.py `
-	--input-dir "D:\Work\Gene select\datasets\combine\BC1" `
-	--mapping-csv "D:\Work\Gene select\datasets\BC1.csv" `
-	--output-dir "D:\Work\Gene select\datasets\clustered\BC1"
+Linux example:
+python clustering/clustering.py \
+	--input-dir datasets/BC1/combined_features \
+	--mapping-csv datasets/BC1.csv \
+	--output-dir datasets/BC1/clustered/BC1 \
+	--features conch uni resnet50 midnight \
+	--resolutions 0.5
 
 Specific features and resolution:
-python clustering/clustering.py `
-	--input-dir "D:\Work\Gene select\datasets\combine\BC1" `
-	--mapping-csv "D:\Work\Gene select\datasets\BC1.csv" `
-	--output-dir "D:\Work\Gene select\datasets\clustered\BC1_0p3" `
-	--features uni midnight resnet50 `
-	--resolution 0.3
+python clustering/clustering.py \
+	--input-dir datasets/BC1/combined_features \
+	--mapping-csv datasets/BC1.csv \
+	--output-dir datasets/BC1/clustered/BC1_multi \
+	--features conch \
+	--resolutions 0.01 0.3 0.5 0.8 1.0
 '''

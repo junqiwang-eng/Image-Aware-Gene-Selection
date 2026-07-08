@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Scan Leiden resolutions for UNI features and summarize cluster counts.
+"""Scan Leiden resolutions for one feature and summarize cluster counts.
 
 The script follows the patient-aware clustering workflow used in
-clustering.py/preprocessing.py, but fixes the input feature to UNI by default
-and runs multiple Leiden resolutions. Cluster labels for every resolution are
-stored in one combined h5ad file, and cluster counts per patient are saved as a
-CSV and plotted as one line per patient.
+clustering.py/preprocessing.py, but runs multiple Leiden resolutions for a
+single selected feature. Cluster counts per patient are saved as a CSV and
+plotted as one line per patient.
 """
 
 from __future__ import annotations
@@ -198,7 +197,11 @@ def make_cluster_count_table(
 	return pd.DataFrame(rows)
 
 
-def plot_cluster_counts(summary_df: pd.DataFrame, output_path: Path) -> None:
+def plot_cluster_counts(
+	summary_df: pd.DataFrame,
+	output_path: Path,
+	feature_name: str,
+) -> None:
 	fig, ax = plt.subplots(figsize=(9, 6))
 	for patient_id, patient_df in summary_df.groupby("patient_id", sort=True):
 		patient_df = patient_df.sort_values("resolution")
@@ -212,7 +215,7 @@ def plot_cluster_counts(summary_df: pd.DataFrame, output_path: Path) -> None:
 
 	ax.set_xlabel("Resolution")
 	ax.set_ylabel("Number of clusters")
-	ax.set_title("UNI cluster count by Leiden resolution")
+	ax.set_title(f"{feature_name} cluster count by Leiden resolution")
 	ax.grid(True, linestyle="--", alpha=0.35)
 	ax.legend(title="Patient", bbox_to_anchor=(1.02, 1), loc="upper left")
 	fig.tight_layout()
@@ -226,7 +229,7 @@ def process_resolutions(
 	output_dir: Path,
 	feature_name: str,
 	resolutions: list[float],
-) -> tuple[Path, Path, Path]:
+) -> tuple[Path, Path]:
 	output_dir.mkdir(parents=True, exist_ok=True)
 
 	combined = load_combined_adata(input_dir, mapping_csv)
@@ -235,23 +238,13 @@ def process_resolutions(
 	summary_df = make_cluster_count_table(combined, cluster_columns, resolutions)
 
 	feature_label = clean_name(feature_name)
-	h5ad_path = output_dir / f"{feature_label}_resolution_clusters.h5ad"
 	csv_path = output_dir / f"{feature_label}_resolution_cluster_counts.csv"
 	plot_path = output_dir / f"{feature_label}_resolution_cluster_counts.png"
 
-	combined.uns["resolution_scan"] = {
-		"feature": feature_label,
-		"feature_key": feature_key,
-		"resolutions": resolutions,
-		"cluster_columns": cluster_columns,
-		"pca_components": DEFAULT_PCA_COMPONENTS,
-		"neighbors": DEFAULT_NEIGHBORS,
-	}
-	combined.write_h5ad(h5ad_path)
 	summary_df.to_csv(csv_path, index=False)
-	plot_cluster_counts(summary_df, plot_path)
+	plot_cluster_counts(summary_df, plot_path, feature_label)
 
-	return h5ad_path, csv_path, plot_path
+	return csv_path, plot_path
 
 
 def parse_args() -> argparse.Namespace:
@@ -294,14 +287,13 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
 	args = parse_args()
-	h5ad_path, csv_path, plot_path = process_resolutions(
+	csv_path, plot_path = process_resolutions(
 		input_dir=args.input_dir,
 		mapping_csv=args.mapping_csv,
 		output_dir=args.output_dir,
 		feature_name=args.feature,
 		resolutions=args.resolutions,
 	)
-	print(f"Saved clustered h5ad: {h5ad_path}")
 	print(f"Saved cluster counts: {csv_path}")
 	print(f"Saved cluster count plot: {plot_path}")
 
@@ -311,10 +303,10 @@ if __name__ == "__main__":
 
 
 r"""
-PowerShell example:
-python clustering/clustering_resolution.py `
-	--input-dir "D:\Work\Gene select\datasets\combine\BC1" `
-	--mapping-csv "D:\Work\Gene select\datasets\BC1.csv" `
-	--feature "resnet50" `
-	--output-dir "D:\Work\Gene select\datasets\resolution\BC1"
+python clustering/clustering_resolution.py \
+	--input-dir datasets/BC1/combined_features \
+	--mapping-csv datasets/BC1.csv \
+	--feature midnight \
+	--resolutions 0.01 0.05 0.1 0.3 0.5 0.8 1.0 1.5 2.0 \
+	--output-dir datasets/BC1/resolution
 """
