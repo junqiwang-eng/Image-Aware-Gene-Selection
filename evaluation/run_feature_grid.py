@@ -9,7 +9,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TRAIN_SCRIPT = PROJECT_ROOT / "evaluation" / "train.py"
 DEFAULT_DATA_DIR = PROJECT_ROOT / "datasets" / "BC1" / "features"
-DEFAULT_RANK_LIST_DIR = PROJECT_ROOT / "datasets" / "rank_list"
 DEFAULT_FEATURES = ["conch", "midnight", "resnet50", "uni"]
 
 
@@ -17,8 +16,24 @@ def discover_rank_lists(rank_list_dir):
 	return sorted(path.stem for path in rank_list_dir.glob("*.json"))
 
 
-def build_command(feature_name, json_path, data_dir, model_key, seed):
-	return [
+def infer_rank_list_dir(data_dir):
+	data_dir = Path(data_dir)
+	if data_dir.name == "features":
+		return data_dir.parent / "rank_list"
+	return PROJECT_ROOT / "datasets" / "BC1" / "rank_list"
+
+
+def infer_mapping_csv(data_dir):
+	data_dir = Path(data_dir)
+	dataset_dir = data_dir.parent if data_dir.name == "features" else data_dir
+	candidate = dataset_dir / f"{dataset_dir.name}.csv"
+	if candidate.exists():
+		return candidate
+	return None
+
+
+def build_command(feature_name, json_path, data_dir, rank_list_dir, mapping_csv, model_key, seed):
+	cmd = [
 		sys.executable,
 		str(TRAIN_SCRIPT),
 		"--data-dir",
@@ -27,21 +42,26 @@ def build_command(feature_name, json_path, data_dir, model_key, seed):
 		feature_name,
 		"--json-paths",
 		json_path,
+		"--rank-list-dir",
+		str(rank_list_dir),
 		"--model-key",
 		model_key,
 		"--seed",
 		str(seed),
 	]
+	if mapping_csv is not None:
+		cmd.extend(["--mapping-csv", str(mapping_csv)])
+	return cmd
 
 
-def make_jobs(features, json_paths, data_dir, model_key, seed):
+def make_jobs(features, json_paths, data_dir, rank_list_dir, mapping_csv, model_key, seed):
 	jobs = []
 	for feature_name in features:
 		for json_path in json_paths:
 			jobs.append(
 				{
 					"name": f"{feature_name} x {json_path}",
-					"cmd": build_command(feature_name, json_path, data_dir, model_key, seed),
+					"cmd": build_command(feature_name, json_path, data_dir, rank_list_dir, mapping_csv, model_key, seed),
 				}
 			)
 	return jobs
@@ -123,6 +143,18 @@ def parse_args():
 		help="Rank list names or JSON paths. Examples: conch, midnight_0p3, midnight_fscore_0p3.",
 	)
 	parser.add_argument(
+		"--rank-list-dir",
+		default=None,
+		type=Path,
+		help="Directory containing rank list JSON files. Defaults to <data-dir parent>/rank_list when data-dir ends with features.",
+	)
+	parser.add_argument(
+		"--mapping-csv",
+		default=None,
+		type=Path,
+		help="CSV with sample_id and patient columns. Defaults to <dataset>/<dataset>.csv when found.",
+	)
+	parser.add_argument(
 		"--model-key",
 		default="ff",
 		choices=["ff", "linear"],
@@ -155,11 +187,15 @@ def parse_args():
 
 if __name__ == "__main__":
 	args = parse_args()
-	json_paths = args.json_paths or discover_rank_lists(DEFAULT_RANK_LIST_DIR)
+	rank_list_dir = args.rank_list_dir or infer_rank_list_dir(args.data_dir)
+	mapping_csv = args.mapping_csv or infer_mapping_csv(args.data_dir)
+	json_paths = args.json_paths or discover_rank_lists(rank_list_dir)
 	jobs = make_jobs(
 		features=args.features,
 		json_paths=json_paths,
 		data_dir=args.data_dir,
+		rank_list_dir=rank_list_dir,
+		mapping_csv=mapping_csv,
 		model_key=args.model_key,
 		seed=args.seed,
 	)
@@ -186,8 +222,8 @@ python evaluation/run_feature_grid.py \
 	--parallel 20
 
 python evaluation/run_feature_grid.py \
-	--data-dir datasets/BC1/features \
-	--features conch uni resnet50 midnight\
-	--json-paths resnet50_0p5 conch_0p5 uni_0p5 midnight_0p5 \
+	--data-dir datasets/BC2/features \
+	--features uni\
+	--json-paths conch_0p5 uni_0p5 tri_hmg tri_hvg tri_hmhvg stem_hmhvg random \
 	--parallel 20
 '''

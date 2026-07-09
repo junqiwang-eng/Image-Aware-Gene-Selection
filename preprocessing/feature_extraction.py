@@ -211,25 +211,25 @@ if __name__ == "__main__":
 Example usage:
 python preprocessing/feature_extraction.py \
      --model_name resnet50_trunc \
-     --input_dir datasets/BC1/paired_data \
-     --save_dir datasets/BC1/features/resnet50 \
-     --batch_size 1024
+     --input_dir datasets/CSCC/paired_data \
+     --save_dir datasets/CSCC/features/resnet50 \
+     --batch_size 2048
 
 python preprocessing/feature_extraction.py \
     --model_name uni_v1 \
-    --input_dir datasets/BC1/paired_data \
-    --save_dir datasets/BC1/features/uni_v1 \
+    --input_dir datasets/BC2/paired_data \
+    --save_dir datasets/BC2/features/uni_v1 \
     --batch_size 1024
 
 python preprocessing/feature_extraction.py \
     --model_name conch_v1 \
-    --input_dir datasets/BC1/paired_data \
-    --save_dir datasets/BC1/features/conch_v1 \
+    --input_dir datasets/BC2/paired_data \
+    --save_dir datasets/BC2/features/conch_v1 \
     --batch_size 1024
 
 python preprocessing/feature_extraction.py \
     --model_name midnight \
-    --input_dir datasets/BC1/paired_data \
-    --save_dir datasets/BC1/features/midnight \
-    --batch_size 256
+    --input_dir datasets/CSCC/paired_data \
+    --save_dir datasets/CSCC/features/midnight \
+    --batch_size 512
 '''

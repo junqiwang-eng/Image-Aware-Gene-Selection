@@ -279,8 +279,8 @@ python clustering/selection.py \
 
 Override labels manually for old cluster columns without resolution in their names:
 python clustering/selection.py \
-	--input-dir datasets/BC1/clustered/BC1_0p5 \
-	--output-dir datasets/rank_list \
+	--input-dir datasets/CSCC/clustered/CSCC \
+	--output-dir datasets/CSCC/rank_list \
 	--selection-method fscore \
 	--resolution-label 0p5
 '''

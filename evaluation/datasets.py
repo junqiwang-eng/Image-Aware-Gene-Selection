@@ -1,4 +1,5 @@
 import json
+import csv
 from pathlib import Path
 import h5py
 import numpy as np
@@ -6,7 +7,7 @@ import torch
 from torch.utils.data import Dataset
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_RANK_LIST_DIR = PROJECT_ROOT / "datasets" / "rank_list"
+DEFAULT_RANK_LIST_DIR = PROJECT_ROOT / "datasets" / "BC1" / "rank_list"
 
 
 def _decode_h5_string(value):
@@ -25,6 +26,30 @@ def _read_optional_string(f, key, default):
     if key not in f:
         return default
     return _decode_h5_string(f[key][()])
+
+
+def load_patient_mapping(csv_path):
+    if csv_path is None:
+        return {}
+
+    csv_path = Path(csv_path)
+    if not csv_path.exists():
+        raise FileNotFoundError(f"Patient mapping CSV not found: {csv_path}")
+
+    patient_by_sample = {}
+    with open(csv_path, "r", encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        required_columns = {"sample_id", "patient"}
+        missing_columns = required_columns - set(reader.fieldnames or [])
+        if missing_columns:
+            raise ValueError(f"Missing columns in {csv_path}: {sorted(missing_columns)}")
+
+        for row in reader:
+            sample_id = row["sample_id"].strip()
+            patient = row["patient"].strip()
+            if sample_id and patient:
+                patient_by_sample[sample_id] = patient
+    return patient_by_sample
 
 
 def _resolve_data_dir(data_dir, feature_name=None):
@@ -82,17 +107,22 @@ def resolve_rank_list_path(json_path, rank_list_dir=DEFAULT_RANK_LIST_DIR):
 
 
 # 1. 核心数据加载：一次性真正读入内存，读完自动关闭文件
-def load_data(data_dir, feature_name=None):
+def load_data(data_dir, feature_name=None, mapping_csv=None):
     data_dir = _resolve_data_dir(data_dir, feature_name=feature_name)
     data_paths = sorted(data_dir.glob("*.h5"))
     data_dict = {}
+    patient_by_sample = load_patient_mapping(mapping_csv)
 
     for path in data_paths:
         sample_id = path.stem
         # with 语句结束时，.h5 文件在最开始就会自动关闭
         with h5py.File(path, "r") as f:
             sample = _read_optional_string(f, "sample", sample_id)
-            patient = _read_optional_string(f, "patient", path.parent.name)
+            patient = _read_optional_string(
+                f,
+                "patient",
+                patient_by_sample.get(sample_id, path.parent.name),
+            )
             data_dict[sample_id] = {
                 "gene_list": f["gene_list"][:],
                 "count": f["count"][:],
@@ -159,6 +189,8 @@ class IMG2STDataset(Dataset):
         # 如果没传，默认用全部样本
         if sample_ids is None:
             sample_ids = list(data_dict.keys())
+        if not sample_ids:
+            raise ValueError("Dataset received no sample ids. Check patient labels and split settings.")
 
         self.sample_id_map = {
             sample_id: i for i, sample_id in enumerate(sample_ids)

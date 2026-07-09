@@ -154,15 +154,34 @@ def load_bc1_data_by_patient(root_dir, feature_name=None):
 	return data_dict, patient_to_sample_ids, patient_names
 
 
+def infer_mapping_csv(data_dir):
+	data_dir = Path(data_dir)
+	dataset_dir = data_dir.parent if data_dir.name == "features" else data_dir
+	candidate = dataset_dir / f"{dataset_dir.name}.csv"
+	if candidate.exists():
+		return candidate
+	return None
+
+
+def load_data_by_patient(root_dir, feature_name=None, mapping_csv=None):
+	data_dict = load_data(root_dir, feature_name=feature_name, mapping_csv=mapping_csv)
+	patient_to_sample_ids = get_sample_ids_by_patient(data_dict)
+	patient_names = sorted(patient_to_sample_ids)
+	if not patient_names:
+		raise ValueError(f"No patient labels found in {root_dir}.")
+	return data_dict, patient_to_sample_ids, patient_names
+
+
 def run_single_patient_evaluation(
 	data_dict,
 	test_sample_ids,
 	test_patient,
 	json_path,
+	rank_list_dir=None,
 	model_key="ff",
 	test_as_val=False,
 ):
-	json_path = resolve_rank_list_path(json_path)
+	json_path = resolve_rank_list_path(json_path, rank_list_dir=rank_list_dir)
 	with open(json_path, "r", encoding="utf-8") as f:
 		target_genes = json.load(f)
 
@@ -262,22 +281,24 @@ def run_single_patient_evaluation(
 def run_fold_evaluation(
 	data_dir,
 	json_paths,
+	rank_list_dir=None,
 	model_key="ff",
 	seed: int = 42,
 	feature_name=None,
+	mapping_csv=None,
 	test_as_val=False,
 ):
 	if isinstance(json_paths, (str, Path)):
 		json_paths = [json_paths]
 
 	set_global_seed(seed)
-	data_dict, patient_to_sample_ids, patient_names = load_bc1_data_by_patient(
-		data_dir, feature_name=feature_name
+	data_dict, patient_to_sample_ids, patient_names = load_data_by_patient(
+		data_dir, feature_name=feature_name, mapping_csv=mapping_csv
 	)
 	print(f"Will evaluate {len(patient_names)} patients: {', '.join(patient_names)}")
 
 	for json_path in json_paths:
-		json_path = resolve_rank_list_path(json_path)
+		json_path = resolve_rank_list_path(json_path, rank_list_dir=rank_list_dir)
 		json_stem = json_path.stem
 		print(f"\n==================== Rank list: {json_stem} ====================")
 
@@ -289,6 +310,7 @@ def run_fold_evaluation(
 				test_sample_ids=patient_to_sample_ids[patient_name],
 				test_patient=patient_name,
 				json_path=json_path,
+				rank_list_dir=rank_list_dir,
 				model_key=model_key,
 				test_as_val=test_as_val,
 			)
@@ -332,6 +354,18 @@ def parse_args():
 		help="One or more rank list names or JSON paths.",
 	)
 	parser.add_argument(
+		"--rank-list-dir",
+		default=None,
+		type=Path,
+		help="Directory containing rank list JSON files. Defaults to <data-dir parent>/rank_list when data-dir ends with features.",
+	)
+	parser.add_argument(
+		"--mapping-csv",
+		default=None,
+		type=Path,
+		help="CSV with sample_id and patient columns. Defaults to <dataset>/<dataset>.csv when found.",
+	)
+	parser.add_argument(
 		"--model-key",
 		default="ff",
 		choices=["ff", "linear"],
@@ -354,12 +388,18 @@ def parse_args():
 if __name__ == "__main__":
 	args = parse_args()
 	configure_torch_performance()
+	rank_list_dir = args.rank_list_dir
+	if rank_list_dir is None and Path(args.data_dir).name == "features":
+		rank_list_dir = Path(args.data_dir).parent / "rank_list"
+	mapping_csv = args.mapping_csv or infer_mapping_csv(args.data_dir)
 	run_fold_evaluation(
 		data_dir=args.data_dir,
 		feature_name=args.feature_name,
 		json_paths=args.json_paths,
+		rank_list_dir=rank_list_dir,
 		model_key=args.model_key,
 		seed=args.seed,
+		mapping_csv=mapping_csv,
 		test_as_val=args.test_as_val,
 	)
 '''

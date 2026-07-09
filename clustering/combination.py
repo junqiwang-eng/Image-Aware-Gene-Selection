@@ -217,10 +217,8 @@ Example: batch combine same-named feature .h5 files from multiple directories.
 
 python clustering/combination.py \
     --feature-dirs \
-        datasets/BC1/features/resnet50_trunc \
-        datasets/BC1/features/uni_v1 \
-        datasets/BC1/features/conch_v1 \
-        datasets/BC1/features/midnight \
-    --names resnet50 uni conch midnight \
-    --output datasets/BC1/combined_features
+        datasets/CSCC/features/uni \
+        datasets/CSCC/features/conch \
+    --names uni conch \
+    --output datasets/CSCC/combined_features
 """

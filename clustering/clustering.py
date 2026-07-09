@@ -311,10 +311,10 @@ python clustering/clustering.py \
 r'''
 Linux example:
 python clustering/clustering.py \
-	--input-dir datasets/BC1/combined_features \
-	--mapping-csv datasets/BC1.csv \
-	--output-dir datasets/BC1/clustered/BC1 \
-	--features conch uni resnet50 midnight \
+	--input-dir datasets/CSCC/combined_features \
+	--mapping-csv datasets/CSCC/CSCC.csv \
+	--output-dir datasets/CSCC/clustered/CSCC \
+	--features conch uni \
 	--resolutions 0.5
 
 Specific features and resolution:

@@ -20,7 +20,7 @@ def preprocessing_adata(file_name):
     adata = sc.read_h5ad(file_name)
 
     # mitochondrial genes, "MT-" for human, "Mt-" for mouse
-    adata.var["mt"] = adata.var_names.str.startswith("MT-")
+    adata.var["mt"] = adata.var_names.str.startswith(("MT-", "Mt-", "mt-"))
     # ribosomal genes
     adata.var["ribo"] = adata.var_names.str.startswith(("RPS", "RPL"))
     # hemoglobin genes
@@ -125,4 +125,4 @@ for patch_path in patch_paths:
             f,
         )
 
-# python preprocessing/make_paired.py datasets/BC1
+# python preprocessing/make_paired.py datasets/CSCC
