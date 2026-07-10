@@ -222,8 +222,8 @@ python evaluation/run_feature_grid.py \
 	--parallel 20
 
 python evaluation/run_feature_grid.py \
-	--data-dir datasets/BC2/features \
+	--data-dir datasets/BC1/features \
 	--features uni\
-	--json-paths conch_0p5 uni_0p5 tri_hmg tri_hvg tri_hmhvg stem_hmhvg random \
+	--json-paths conch_0p1 conch_1p0 conch_1p5 conch_2p0 random\
 	--parallel 20
 '''

@@ -320,8 +320,8 @@ python clustering/clustering.py \
 Specific features and resolution:
 python clustering/clustering.py \
 	--input-dir datasets/BC1/combined_features \
-	--mapping-csv datasets/BC1.csv \
-	--output-dir datasets/BC1/clustered/BC1_multi \
+	--mapping-csv datasets/BC1/BC1.csv \
+	--output-dir datasets/BC1/clustered/BC1 \
 	--features conch \
-	--resolutions 0.01 0.3 0.5 0.8 1.0
+	--resolutions 0.1 1.0 1.5 2.0
 '''

@@ -150,9 +150,9 @@ if __name__ == "__main__":
 '''
 Example:
 python clustering/random_selection.py \
-	--input-dir datasets/CSCC/features/conch \
-	--output-dir datasets/CSCC/rank_list \
-	--mapping-csv datasets/CSCC.csv \
+	--input-dir datasets/BC1/features/conch \
+	--output-dir datasets/BC1/rank_list \
+	--mapping-csv datasets/BC1.csv \
 	--output-name random \
 	--top-n 250 \
 	--seed 42

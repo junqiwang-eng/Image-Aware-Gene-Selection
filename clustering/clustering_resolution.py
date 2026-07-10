@@ -305,8 +305,8 @@ if __name__ == "__main__":
 r"""
 python clustering/clustering_resolution.py \
 	--input-dir datasets/BC1/combined_features \
-	--mapping-csv datasets/BC1.csv \
-	--feature midnight \
-	--resolutions 0.01 0.05 0.1 0.3 0.5 0.8 1.0 1.5 2.0 \
+	--mapping-csv datasets/BC1/BC1.csv \
+	--feature uni \
+	--resolutions 0.01 0.1 1.0 2.0 \
 	--output-dir datasets/BC1/resolution
 """
