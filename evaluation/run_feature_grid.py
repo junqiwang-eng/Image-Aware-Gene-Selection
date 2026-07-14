@@ -8,6 +8,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TRAIN_SCRIPT = PROJECT_ROOT / "evaluation" / "train.py"
+TRAIN_50_SCRIPT = PROJECT_ROOT / "evaluation" / "train_50.py"
 DEFAULT_DATA_DIR = PROJECT_ROOT / "datasets" / "BC1" / "features"
 DEFAULT_FEATURES = ["conch", "midnight", "resnet50", "uni"]
 
@@ -32,10 +33,20 @@ def infer_mapping_csv(data_dir):
 	return None
 
 
-def build_command(feature_name, json_path, data_dir, rank_list_dir, mapping_csv, model_key, seed):
+def build_command(
+	feature_name,
+	json_path,
+	data_dir,
+	rank_list_dir,
+	mapping_csv,
+	model_key,
+	seed,
+	gene_num=None,
+):
+	train_script = TRAIN_50_SCRIPT if gene_num == 50 else TRAIN_SCRIPT
 	cmd = [
 		sys.executable,
-		str(TRAIN_SCRIPT),
+		str(train_script),
 		"--data-dir",
 		str(data_dir),
 		"--feature-name",
@@ -51,17 +62,37 @@ def build_command(feature_name, json_path, data_dir, rank_list_dir, mapping_csv,
 	]
 	if mapping_csv is not None:
 		cmd.extend(["--mapping-csv", str(mapping_csv)])
+	if gene_num is not None:
+		cmd.extend(["--gene-num", str(gene_num)])
 	return cmd
 
 
-def make_jobs(features, json_paths, data_dir, rank_list_dir, mapping_csv, model_key, seed):
+def make_jobs(
+	features,
+	json_paths,
+	data_dir,
+	rank_list_dir,
+	mapping_csv,
+	model_key,
+	seed,
+	gene_num=None,
+):
 	jobs = []
 	for feature_name in features:
 		for json_path in json_paths:
 			jobs.append(
 				{
 					"name": f"{feature_name} x {json_path}",
-					"cmd": build_command(feature_name, json_path, data_dir, rank_list_dir, mapping_csv, model_key, seed),
+					"cmd": build_command(
+						feature_name,
+						json_path,
+						data_dir,
+						rank_list_dir,
+						mapping_csv,
+						model_key,
+						seed,
+						gene_num,
+					),
 				}
 			)
 	return jobs
@@ -167,6 +198,12 @@ def parse_args():
 		help="Random seed.",
 	)
 	parser.add_argument(
+		"--gene-num",
+		type=int,
+		default=None,
+		help="Predict at most the first N genes from each rank-list JSON.",
+	)
+	parser.add_argument(
 		"--parallel",
 		type=int,
 		default=1,
@@ -182,7 +219,10 @@ def parse_args():
 		action="store_true",
 		help="Print commands without running them.",
 	)
-	return parser.parse_args()
+	args = parser.parse_args()
+	if args.gene_num is not None and args.gene_num < 1:
+		parser.error("--gene-num must be at least 1")
+	return args
 
 
 if __name__ == "__main__":
@@ -198,6 +238,7 @@ if __name__ == "__main__":
 		mapping_csv=mapping_csv,
 		model_key=args.model_key,
 		seed=args.seed,
+		gene_num=args.gene_num,
 	)
 	run_jobs(
 		jobs=jobs,
@@ -217,13 +258,13 @@ python evaluation/run_feature_grid.py \
 	--parallel 10
 
 python evaluation/run_feature_grid.py \
-	--data-dir datasets/BC1/features \
+	--data-dir datasets/BC2/features \
 	--json-paths midnight_0p3 resnet50_0p3 uni_0p3 \
 	--parallel 20
 
 python evaluation/run_feature_grid.py \
-	--data-dir datasets/BC1/features \
-	--features uni\
-	--json-paths conch_0p1 conch_1p0 conch_1p5 conch_2p0 random\
+	--data-dir datasets/CSCC/features \
+	--features uni \
+	--json-paths conch_new_deg_0p5 conch_unrobust_fscore_0p5 conch_deg_0p5 \
 	--parallel 20
 '''

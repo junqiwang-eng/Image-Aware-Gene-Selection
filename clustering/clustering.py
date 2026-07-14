@@ -323,5 +323,5 @@ python clustering/clustering.py \
 	--mapping-csv datasets/BC1/BC1.csv \
 	--output-dir datasets/BC1/clustered/BC1 \
 	--features conch \
-	--resolutions 0.1 1.0 1.5 2.0
+	--resolutions 0.5
 '''

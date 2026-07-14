@@ -125,7 +125,6 @@ def load_data(data_dir, feature_name=None, mapping_csv=None):
             )
             data_dict[sample_id] = {
                 "gene_list": f["gene_list"][:],
-                "count": f["count"][:],
                 "exp": f["exp"][:],
                 "sample": sample,
                 "patient": patient,
@@ -170,7 +169,7 @@ def idx_map2common_genes(data_dict, common_genes):
     return idx_map_dict
 
 
-# 3. 标准 PyTorch Dataset（支持指定样本独立加载与独立归一化）
+# 3. 标准 PyTorch Dataset（始终使用 H5 中的原始 exp）
 class IMG2STDataset(Dataset):
 
     def __init__(
@@ -180,6 +179,7 @@ class IMG2STDataset(Dataset):
         ntop_genes=250,
         use_gene_list=None,
         json_path=None,
+        gene_num=None,
     ):
         """
         sample_ids: 明确指定当前 Dataset 仅加载哪些患者的数据。
@@ -191,6 +191,8 @@ class IMG2STDataset(Dataset):
             sample_ids = list(data_dict.keys())
         if not sample_ids:
             raise ValueError("Dataset received no sample ids. Check patient labels and split settings.")
+        if gene_num is not None and gene_num < 1:
+            raise ValueError("gene_num must be at least 1 when provided.")
 
         self.sample_id_map = {
             sample_id: i for i, sample_id in enumerate(sample_ids)
@@ -208,9 +210,9 @@ class IMG2STDataset(Dataset):
         self.common_genes = get_common_genes(data_dict)
         self.idx_map = idx_map2common_genes(data_dict, self.common_genes)
 
-        self.count = torch.cat(
+        self.exp = torch.cat(
             [
-                torch.tensor(data_dict[sample_id]["count"]).float()[
+                torch.tensor(data_dict[sample_id]["exp"]).float()[
                     :, self.idx_map[sample_id]
                 ]
                 for sample_id in sample_ids
@@ -222,20 +224,15 @@ class IMG2STDataset(Dataset):
             json_path = resolve_rank_list_path(json_path)
             with open(json_path, "r", encoding="utf-8") as f:
                 use_gene_list = json.load(f)
+            if gene_num is not None:
+                use_gene_list = use_gene_list[:gene_num]
 
         # 如果没有传入指定的基因列表，则在当前“纯净样本内部”计算高变基因（HVG）
         if use_gene_list is None:
-            orig_exp = torch.cat(
-                [
-                    torch.tensor(data_dict[sample_id]["exp"]).float()[
-                        :, self.idx_map[sample_id]
-                    ]
-                    for sample_id in sample_ids
-                ]
-            )
-            gene_variances = torch.var(orig_exp, dim=0)
+            gene_variances = torch.var(self.exp, dim=0)
+            selected_gene_num = gene_num if gene_num is not None else ntop_genes
             use_gene_idx_list = torch.argsort(gene_variances, descending=True)[
-                :ntop_genes
+                :selected_gene_num
             ]
         else:
             # 如果传入了基因列表（如你的前 250 基因），则精准匹配其在交集基因里的索引
@@ -244,14 +241,12 @@ class IMG2STDataset(Dataset):
             # 👇 【核心修改：加入安全容错过滤】
             # 只保留那些“确实同时存在于当前 .h5 文件交集里”的 JSON 基因
             matched_gene_idx = []
-            actual_used_genes = []
             missing_genes = []
 
             for gene in use_gene_list:
                 gene_str = str(gene)
                 if gene_str in common_genes_str:
                     matched_gene_idx.append(common_genes_str.index(gene_str))
-                    actual_used_genes.append(gene_str)
                 else:
                     missing_genes.append(gene_str)
 
@@ -263,13 +258,8 @@ class IMG2STDataset(Dataset):
 
             use_gene_idx_list = torch.tensor(matched_gene_idx, dtype=torch.long)
 
-        # 切分表达量矩阵
-        self.count = self.count[:, use_gene_idx_list]
-
-        # 🚀 核心变化：这里的归一化（Log1p）和分母缩放将绝对在选定样本内部独立进行，杜绝泄露
-        self.exp = torch.log(
-            1.0e4 * self.count / self.count.sum(dim=1, keepdims=True) + 1.0
-        )
+        # 不做二次归一化，只按最终基因列表切片原始 exp。
+        self.exp = self.exp[:, use_gene_idx_list]
         self.common_genes = [
             list(self.common_genes)[i] for i in use_gene_idx_list
         ]
@@ -279,7 +269,7 @@ class IMG2STDataset(Dataset):
             [
                 torch.tensor(
                     [self.sample_id_map[sample_id]]
-                    * len(data_dict[sample_id]["count"])
+                    * len(data_dict[sample_id]["exp"])
                 )
                 for sample_id in sample_ids
             ]
@@ -292,7 +282,6 @@ class IMG2STDataset(Dataset):
         return {
             "img_feat": self.img_feat[idx],
             "exp": self.exp[idx],
-            "count": self.count[idx],
             "sample_id": self.sample_ids[idx],
         }
 

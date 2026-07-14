@@ -23,9 +23,9 @@ from module import STPred
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 TOP_K_ORDER = ["top10", "top50", "top100", "top250"]
 MATMUL_PRECISION = "medium"
-METRIC_FILES = {
-	"Mean_PCC": PROJECT_ROOT / "fscore_pcc.csv",
-	"Mean_SCC": PROJECT_ROOT / "fscore_scc.csv",
+METRIC_FILE_SUFFIXES = {
+	"Mean_PCC": "pcc",
+	"Mean_SCC": "scc",
 }
 DISPLAY_NAME_OVERRIDES = {
 	"conch": "Conch",
@@ -115,14 +115,28 @@ def make_metric_frame(df_ranking, metric_col, experiment_name):
 	)
 
 
-def update_metric_csv(path, df_ranking, metric_col, experiment_name):
+def update_metric_csv(
+	path,
+	df_ranking,
+	metric_col,
+	experiment_name,
+	restrict_to_new_rows=False,
+):
 	with file_lock(path.with_suffix(path.suffix + ".lock")):
 		new_values = make_metric_frame(df_ranking, metric_col, experiment_name)
 		if path.exists():
 			result = pd.read_csv(path)
+			if restrict_to_new_rows:
+				new_keys = new_values[["Patient", "Top_K"]].drop_duplicates()
+				result = new_keys.merge(result, on=["Patient", "Top_K"], how="left")
 			if experiment_name in result.columns:
 				result = result.drop(columns=[experiment_name])
-			result = result.merge(new_values, on=["Patient", "Top_K"], how="outer")
+			merge_how = "left" if restrict_to_new_rows else "outer"
+			result = result.merge(
+				new_values,
+				on=["Patient", "Top_K"],
+				how=merge_how,
+			)
 		else:
 			result = new_values
 
@@ -138,10 +152,31 @@ def update_metric_csv(path, df_ranking, metric_col, experiment_name):
 		result.to_csv(path, index=False)
 
 
-def save_metric_csvs(df_ranking, feature_name, json_stem):
+def infer_dataset_name(data_dir):
+	data_dir = Path(data_dir)
+	dataset_dir = data_dir.parent if data_dir.name == "features" else data_dir
+	return dataset_dir.name
+
+
+def save_metric_csvs(
+	df_ranking,
+	feature_name,
+	json_stem,
+	dataset_name,
+	gene_num=None,
+	restrict_to_new_rows=False,
+):
 	experiment_name = make_experiment_name(feature_name, json_stem)
-	for metric_col, output_path in METRIC_FILES.items():
-		update_metric_csv(output_path, df_ranking, metric_col, experiment_name)
+	dataset_label = f"{dataset_name}_{gene_num}" if gene_num is not None else dataset_name
+	for metric_col, suffix in METRIC_FILE_SUFFIXES.items():
+		output_path = PROJECT_ROOT / f"{dataset_label}_{suffix}.csv"
+		update_metric_csv(
+			output_path,
+			df_ranking,
+			metric_col,
+			experiment_name,
+			restrict_to_new_rows=restrict_to_new_rows,
+		)
 		print(f"Saved {metric_col} to {output_path} column {experiment_name}")
 
 
@@ -180,17 +215,25 @@ def run_single_patient_evaluation(
 	rank_list_dir=None,
 	model_key="ff",
 	test_as_val=False,
+	gene_num=None,
+	hidden_dim=384,
+	top_ks=(10, 50, 100, 250),
 ):
 	json_path = resolve_rank_list_path(json_path, rank_list_dir=rank_list_dir)
 	with open(json_path, "r", encoding="utf-8") as f:
 		target_genes = json.load(f)
 
-	print(f"Loaded {len(data_dict)} samples; rank list genes: {len(target_genes)}")
+	selected_target_count = min(gene_num, len(target_genes)) if gene_num is not None else len(target_genes)
+	print(
+		f"Loaded {len(data_dict)} samples; rank list genes: {len(target_genes)}; "
+		f"requested genes: {selected_target_count}"
+	)
 
 	train_dataset, test_dataset = get_train_test_datasets(
 		data_dict=data_dict,
 		test_sample_ids=test_sample_ids,
 		json_path=json_path,
+		gene_num=gene_num,
 	)
 
 	num_genes = len(train_dataset.common_genes)
@@ -218,7 +261,7 @@ def run_single_patient_evaluation(
 	model_params = {
 		"in_features": input_features,
 		"out_features": num_genes,
-		"hidden_dims": [384],
+		"hidden_dims": [hidden_dim],
 		"dropout_p": 0.4,
 	}
 	model = STPred(model_key=model_key, model_params=model_params, lr=5e-5)
@@ -264,7 +307,7 @@ def run_single_patient_evaluation(
 		.reset_index(drop=True)
 	)
 	top_k_rows = []
-	for top_k in [10, 50, 100, 250]:
+	for top_k in top_ks:
 		effective_k = min(top_k, len(df_sorted))
 		top_k_rows.append(
 			{
@@ -287,11 +330,16 @@ def run_fold_evaluation(
 	feature_name=None,
 	mapping_csv=None,
 	test_as_val=False,
+	gene_num=None,
+	hidden_dim=384,
+	top_ks=(10, 50, 100, 250),
+	average_only=False,
 ):
 	if isinstance(json_paths, (str, Path)):
 		json_paths = [json_paths]
 
 	set_global_seed(seed)
+	dataset_name = infer_dataset_name(data_dir)
 	data_dict, patient_to_sample_ids, patient_names = load_data_by_patient(
 		data_dir, feature_name=feature_name, mapping_csv=mapping_csv
 	)
@@ -313,6 +361,9 @@ def run_fold_evaluation(
 				rank_list_dir=rank_list_dir,
 				model_key=model_key,
 				test_as_val=test_as_val,
+				gene_num=gene_num,
+				hidden_dim=hidden_dim,
+				top_ks=top_ks,
 			)
 			ranking_rows.append(df_patient_rank)
 
@@ -323,14 +374,26 @@ def run_fold_evaluation(
 			.assign(Patient="Average")
 		)
 		average_rows = average_rows[["Patient", "Top_K", "Mean_PCC", "Mean_SCC"]]
+		top_k_order = [f"top{top_k}" for top_k in top_ks]
 		average_rows["Top_K"] = pd.Categorical(
-			average_rows["Top_K"], categories=TOP_K_ORDER, ordered=True
+			average_rows["Top_K"], categories=top_k_order, ordered=True
 		)
 		average_rows = average_rows.sort_values("Top_K")
 		average_rows["Top_K"] = average_rows["Top_K"].astype(str)
-		df_ranking = pd.concat([df_ranking, average_rows], ignore_index=True)
+		df_ranking = (
+			average_rows.reset_index(drop=True)
+			if average_only
+			else pd.concat([df_ranking, average_rows], ignore_index=True)
+		)
 
-		save_metric_csvs(df_ranking, feature_name, json_stem)
+		save_metric_csvs(
+			df_ranking,
+			feature_name,
+			json_stem,
+			dataset_name,
+			gene_num,
+			restrict_to_new_rows=average_only,
+		)
 
 
 def parse_args():
@@ -378,11 +441,20 @@ def parse_args():
 		help="Random seed.",
 	)
 	parser.add_argument(
+		"--gene-num",
+		type=int,
+		default=None,
+		help="Predict at most the first N genes from each rank-list JSON.",
+	)
+	parser.add_argument(
 		"--test-as-val",
 		action="store_true",
 		help="Use the test loader as validation during fit, for observing the best epoch.",
 	)
-	return parser.parse_args()
+	args = parser.parse_args()
+	if args.gene_num is not None and args.gene_num < 1:
+		parser.error("--gene-num must be at least 1")
+	return args
 
 
 if __name__ == "__main__":
@@ -401,11 +473,13 @@ if __name__ == "__main__":
 		seed=args.seed,
 		mapping_csv=mapping_csv,
 		test_as_val=args.test_as_val,
+		gene_num=args.gene_num,
 	)
 '''
 python evaluation/train.py \
 	--data-dir datasets/BC1/features \
 	--feature-name conch \
 	--json-paths conch \
+	--gene-num 100 \
 	--test-as-val
 '''
