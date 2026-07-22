@@ -263,8 +263,8 @@ python evaluation/run_feature_grid.py \
 	--parallel 20
 
 python evaluation/run_feature_grid.py \
-	--data-dir datasets/CSCC/features \
+	--data-dir datasets/BC1/features \
 	--features uni \
-	--json-paths conch_new_deg_0p5 conch_unrobust_fscore_0p5 conch_deg_0p5 \
+	--json-paths her2st_DEG_200 her2st_DEG_296 \
 	--parallel 20
 '''
